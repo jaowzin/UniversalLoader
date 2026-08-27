@@ -62,6 +62,23 @@ jobs:
           ! grep -q 'Utils/AntiDetection.cpp' runtime-core/src/main/cpp/Android.mk
           ! grep -q 'Utils/VirtualSpoof.cpp' runtime-core/src/main/cpp/Android.mk
 
+      - name: Build floating menu sample plugin
+        shell: bash
+        run: |
+          set -e
+          NDK="$ANDROID_SDK_ROOT/ndk/29.0.13846066"
+          CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang++"
+          mkdir -p sample-plugins/floating-menu/out/arm64-v8a
+          "$CLANG" \
+            -shared \
+            -fPIC \
+            -fvisibility=hidden \
+            -O2 \
+            -std=c++17 \
+            sample-plugins/floating-menu/floating_menu.cpp \
+            -o sample-plugins/floating-menu/out/arm64-v8a/libul_floating_menu.so
+          file sample-plugins/floating-menu/out/arm64-v8a/libul_floating_menu.so
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
@@ -82,4 +99,11 @@ jobs:
         with:
           name: UniversalLoader-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload floating menu plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: ULFloatingMenu-arm64-v8a
+          path: sample-plugins/floating-menu/out/arm64-v8a/libul_floating_menu.so
           if-no-files-found: error
