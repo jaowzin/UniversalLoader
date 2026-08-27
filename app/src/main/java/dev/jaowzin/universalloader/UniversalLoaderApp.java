@@ -127,6 +127,7 @@ public final class UniversalLoaderApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        LoaderDarkTheme.register(this);
         try {
             CarromRuntimeCore.get().doCreate();
         } catch (Throwable error) {
