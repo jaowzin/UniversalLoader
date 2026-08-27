@@ -1,21 +1,22 @@
 package dev.jaowzin.universalloader;
 
-import android.content.res.ColorStateList;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.GridLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.PopupMenu;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -23,619 +24,542 @@ import android.widget.Toast;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.google.android.material.button.MaterialButton;
-import com.google.android.material.card.MaterialCardView;
-import com.google.android.material.switchmaterial.SwitchMaterial;
-
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import dev.jaowzin.carromloader.runtime.CarromRuntimeCore;
 import dev.jaowzin.carromloader.runtime.entity.pm.InstallResult;
+import dev.jaowzin.carromloader.runtime.entity.pm.InstalledPackage;
+import dev.jaowzin.carromloader.runtime.fake.frameworks.BPackageManager;
 
 public final class MainActivity extends AppCompatActivity {
     private static final int USER_ID = 0;
 
-    private static final int BG = Color.rgb(8, 12, 18);
-    private static final int CARD = Color.rgb(16, 23, 32);
-    private static final int CARD_ALT = Color.rgb(20, 29, 40);
-    private static final int STROKE = Color.rgb(39, 53, 69);
-    private static final int TEXT = Color.rgb(240, 247, 246);
-    private static final int MUTED = Color.rgb(139, 157, 171);
-    private static final int ACCENT = Color.rgb(110, 243, 196);
-    private static final int BLUE = Color.rgb(122, 168, 255);
-    private static final int WARNING = Color.rgb(255, 199, 92);
-    private static final int DANGER = Color.rgb(255, 140, 151);
+    private static final int BLUE = Color.rgb(82, 126, 239);
+    private static final int BLUE_DARK = Color.rgb(69, 109, 218);
+    private static final int BG = Color.rgb(246, 247, 249);
+    private static final int TEXT = Color.rgb(53, 59, 69);
+    private static final int MUTED = Color.rgb(125, 132, 143);
+    private static final int DIVIDER = Color.rgb(224, 227, 232);
+    private static final int BADGE = Color.rgb(51, 113, 238);
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
-    private final Handler statusHandler = new Handler(Looper.getMainLooper());
 
-    private String selectedPackage = "";
-    private boolean polling;
-
-    private ImageView selectedIcon;
-    private TextView selectedName;
-    private TextView selectedPackageView;
-    private TextView runtimeBadge;
-    private TextView runtimeDetail;
-    private MaterialButton primaryAction;
-    private TextView pluginSummary;
-    private LinearLayout pluginContainer;
-    private TextView console;
-
-    private final Runnable statusTicker = new Runnable() {
-        @Override
-        public void run() {
-            if (!polling) return;
-            refreshStatus();
-            statusHandler.postDelayed(this, 900L);
-        }
-    };
+    private GridLayout appGrid;
+    private TextView emptyHint;
+    private TextView titleView;
+    private boolean loading;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        selectedPackage = TargetStore.getSelectedPackage(this);
         configureWindow();
         setContentView(buildContent());
-        refreshAll();
+        refreshGrid();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        polling = true;
-        statusHandler.removeCallbacks(statusTicker);
-        statusHandler.post(statusTicker);
-    }
-
-    @Override
-    protected void onPause() {
-        polling = false;
-        statusHandler.removeCallbacks(statusTicker);
-        super.onPause();
+        refreshGrid();
     }
 
     @Override
     protected void onDestroy() {
-        polling = false;
-        statusHandler.removeCallbacks(statusTicker);
         worker.shutdownNow();
         super.onDestroy();
     }
 
     private void configureWindow() {
         Window window = getWindow();
-        window.setStatusBarColor(BG);
+        window.setStatusBarColor(BLUE_DARK);
         window.setNavigationBarColor(BG);
+        window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
     }
 
     private View buildContent() {
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(BG);
+
+        root.addView(buildToolbar(), new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(58)));
+
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
         scroll.setBackgroundColor(BG);
 
-        LinearLayout root = vertical();
-        root.setPadding(dp(20), dp(22), dp(20), dp(38));
-        scroll.addView(root, new ScrollView.LayoutParams(
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(10), dp(14), dp(10), dp(28));
+        scroll.addView(content, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        root.addView(buildHeader());
-        root.addView(buildSelectedAppCard());
-        root.addView(sectionTitle("WORKSPACE", "Create and manage an isolated copy of the selected app."));
-        root.addView(buildWorkspaceActions());
-        root.addView(sectionTitle("PLUGINS", "Loader-side profiles attached to this workspace."));
-        root.addView(buildPluginsCard());
-        root.addView(sectionTitle("RUNTIME", "Status of the virtual-app engine."));
-        root.addView(buildRuntimeCard());
-        root.addView(sectionTitle("CONSOLE", "Live workspace summary."));
-        root.addView(buildConsole());
+        emptyHint = text("", 13f, MUTED, false);
+        emptyHint.setGravity(Gravity.CENTER);
+        emptyHint.setPadding(dp(16), dp(28), dp(16), dp(6));
+        emptyHint.setVisibility(View.GONE);
+        content.addView(emptyHint, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        TextView footer = text("Universal Loader  •  Runtime workspace v0.1", 12f, MUTED, false);
-        footer.setGravity(Gravity.CENTER);
-        footer.setPadding(0, dp(24), 0, dp(4));
-        root.addView(footer, matchWrap());
-        return scroll;
+        appGrid = new GridLayout(this);
+        appGrid.setColumnCount(4);
+        appGrid.setAlignmentMode(GridLayout.ALIGN_BOUNDS);
+        appGrid.setUseDefaultMargins(false);
+        content.addView(appGrid, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        root.addView(scroll, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        return root;
     }
 
-    private View buildHeader() {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, 0, 0, dp(18));
+    private View buildToolbar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(dp(8), 0, dp(8), 0);
+        bar.setBackgroundColor(BLUE);
+        bar.setElevation(dp(4));
 
-        LinearLayout copy = vertical();
-        TextView eyebrow = text("VIRTUAL WORKSPACE", 11f, ACCENT, true);
-        eyebrow.setLetterSpacing(0.17f);
-        copy.addView(eyebrow);
-        TextView title = text("Universal Loader", 30f, TEXT, true);
-        title.setPadding(0, dp(2), 0, 0);
-        copy.addView(title);
-        TextView subtitle = text("Run isolated app instances from one clean dashboard.", 12.5f, MUTED, false);
-        subtitle.setPadding(0, dp(4), 0, 0);
-        copy.addView(subtitle);
-        row.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView menu = toolbarIcon("☰");
+        menu.setContentDescription("Menu");
+        menu.setOnClickListener(this::showMainMenu);
+        bar.addView(menu, new LinearLayout.LayoutParams(dp(46), dp(58)));
 
-        TextView mark = text("UL", 15f, BG, true);
-        mark.setGravity(Gravity.CENTER);
-        mark.setBackground(roundRect(ACCENT, dp(16)));
-        row.addView(mark, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        return row;
+        titleView = text("Universal Loader", 19f, Color.WHITE, true);
+        titleView.setGravity(Gravity.CENTER_VERTICAL);
+        titleView.setPadding(dp(8), 0, 0, 0);
+        bar.addView(titleView, new LinearLayout.LayoutParams(0, dp(58), 1f));
+
+        TextView settings = toolbarIcon("⚙");
+        settings.setContentDescription("Settings");
+        settings.setOnClickListener(v -> showSettings());
+        bar.addView(settings, new LinearLayout.LayoutParams(dp(48), dp(58)));
+        return bar;
     }
 
-    private View buildSelectedAppCard() {
-        MaterialCardView card = card(CARD_ALT, 24);
-        LinearLayout body = vertical();
-        body.setPadding(dp(18), dp(18), dp(18), dp(18));
+    private TextView toolbarIcon(String glyph) {
+        TextView view = text(glyph, 25f, Color.WHITE, false);
+        view.setGravity(Gravity.CENTER);
+        view.setBackground(selectableBackground());
+        return view;
+    }
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-
-        selectedIcon = new ImageView(this);
-        selectedIcon.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        selectedIcon.setBackground(roundRect(Color.rgb(29, 41, 54), dp(16)));
-        row.addView(selectedIcon, new LinearLayout.LayoutParams(dp(58), dp(58)));
-
-        LinearLayout copy = vertical();
-        copy.setPadding(dp(14), 0, dp(8), 0);
-        selectedName = text("Choose an app", 19f, TEXT, true);
-        selectedPackageView = text("No workspace selected", 12f, MUTED, false);
-        selectedPackageView.setPadding(0, dp(3), 0, 0);
-        copy.addView(selectedName);
-        copy.addView(selectedPackageView);
-        row.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        runtimeBadge = text("IDLE", 10f, MUTED, true);
-        runtimeBadge.setGravity(Gravity.CENTER);
-        runtimeBadge.setPadding(dp(10), dp(7), dp(10), dp(7));
-        runtimeBadge.setBackground(roundRect(Color.rgb(33, 42, 53), dp(99)));
-        row.addView(runtimeBadge);
-        body.addView(row);
-
-        runtimeDetail = text("Select an installed app to create a virtual workspace.", 12.5f, MUTED, false);
-        runtimeDetail.setPadding(0, dp(14), 0, dp(14));
-        body.addView(runtimeDetail);
-
-        primaryAction = primaryButton("CHOOSE APP");
-        primaryAction.setOnClickListener(v -> {
-            if (selectedPackage.isEmpty()) chooseApp();
-            else setupAndLaunch();
+    private void refreshGrid() {
+        if (loading || appGrid == null) return;
+        loading = true;
+        worker.execute(() -> {
+            List<AppEntry> entries = loadVirtualApps();
+            runOnUiThread(() -> {
+                loading = false;
+                renderGrid(entries);
+            });
         });
-        body.addView(primaryAction, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)));
-
-        card.addView(body);
-        return card;
     }
 
-    private View buildWorkspaceActions() {
-        MaterialCardView card = card(CARD, 20);
-        LinearLayout body = vertical();
-        body.setPadding(dp(14), dp(14), dp(14), dp(14));
-
-        MaterialButton choose = secondaryButton("Choose another app");
-        choose.setOnClickListener(v -> chooseApp());
-        body.addView(choose, fullButtonLp());
-
-        MaterialButton reset = secondaryButton("Reset selected virtual app");
-        reset.setTextColor(DANGER);
-        reset.setOnClickListener(v -> confirmReset());
-        LinearLayout.LayoutParams resetLp = fullButtonLp();
-        resetLp.setMargins(0, dp(8), 0, 0);
-        body.addView(reset, resetLp);
-
-        card.addView(body);
-        return card;
+    private List<AppEntry> loadVirtualApps() {
+        ArrayList<AppEntry> result = new ArrayList<>();
+        try {
+            List<InstalledPackage> installed = BPackageManager.get().getInstalledPackagesAsUser(USER_ID);
+            PackageManager hostPm = getPackageManager();
+            for (InstalledPackage pkg : installed) {
+                if (pkg == null || pkg.packageName == null || pkg.packageName.equals(getPackageName())) continue;
+                String label = pkg.packageName;
+                Drawable icon = null;
+                try {
+                    ApplicationInfo hostInfo = hostPm.getApplicationInfo(pkg.packageName, 0);
+                    CharSequence raw = hostPm.getApplicationLabel(hostInfo);
+                    if (raw != null) label = raw.toString();
+                    icon = hostPm.getApplicationIcon(hostInfo);
+                } catch (Throwable ignored) {
+                    try {
+                        ApplicationInfo virtualInfo = pkg.getApplication();
+                        if (virtualInfo != null) {
+                            CharSequence raw = virtualInfo.loadLabel(hostPm);
+                            if (raw != null) label = raw.toString();
+                            icon = virtualInfo.loadIcon(hostPm);
+                        }
+                    } catch (Throwable ignoredAgain) {
+                    }
+                }
+                result.add(new AppEntry(label, pkg.packageName, icon));
+            }
+        } catch (Throwable ignored) {
+        }
+        result.sort(Comparator.comparing(a -> a.label.toLowerCase()));
+        return result;
     }
 
-    private View buildPluginsCard() {
-        MaterialCardView card = card(CARD, 20);
-        LinearLayout body = vertical();
-        body.setPadding(dp(16), dp(16), dp(16), dp(16));
+    private void renderGrid(List<AppEntry> apps) {
+        appGrid.removeAllViews();
+        emptyHint.setVisibility(apps.isEmpty() ? View.VISIBLE : View.GONE);
+        emptyHint.setText(apps.isEmpty()
+                ? "No cloned apps yet. Tap + to add one."
+                : "");
 
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.HORIZONTAL);
-        top.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout copy = vertical();
-        pluginSummary = text("No plugin profiles", 16f, TEXT, true);
-        copy.addView(pluginSummary);
-        TextView hint = text("Profiles are stored by target package and can carry workspace notes/settings.", 12f, MUTED, false);
-        hint.setPadding(0, dp(4), dp(10), 0);
-        copy.addView(hint);
-        top.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        for (AppEntry app : apps) {
+            appGrid.addView(buildAppTile(app), tileLayoutParams());
+        }
+        appGrid.addView(buildAddTile(), tileLayoutParams());
+    }
 
-        TextView badge = text("SAFE", 10f, BLUE, true);
+    private GridLayout.LayoutParams tileLayoutParams() {
+        int width = Math.max(dp(78),
+                (getResources().getDisplayMetrics().widthPixels - dp(20)) / 4);
+        GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
+        lp.width = width;
+        lp.height = dp(112);
+        lp.setMargins(0, dp(2), 0, dp(4));
+        return lp;
+    }
+
+    private View buildAppTile(AppEntry app) {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        tile.setPadding(dp(4), dp(5), dp(4), 0);
+        tile.setBackground(selectableBackground());
+        tile.setOnClickListener(v -> launchVirtual(app.packageName));
+        tile.setOnLongClickListener(v -> {
+            showAppActions(app);
+            return true;
+        });
+
+        FrameLayout iconWrap = new FrameLayout(this);
+        LinearLayout.LayoutParams iconWrapLp = new LinearLayout.LayoutParams(dp(64), dp(64));
+        tile.addView(iconWrap, iconWrapLp);
+
+        ImageView icon = new ImageView(this);
+        icon.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        if (app.icon != null) {
+            icon.setImageDrawable(app.icon);
+        } else {
+            GradientDrawable fallback = roundRect(Color.rgb(220, 224, 231), dp(14));
+            icon.setBackground(fallback);
+            TextView letter = text(app.label.substring(0, 1).toUpperCase(), 24f, BLUE, true);
+            letter.setGravity(Gravity.CENTER);
+            iconWrap.addView(letter, new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        }
+        FrameLayout.LayoutParams iconLp = new FrameLayout.LayoutParams(dp(56), dp(56), Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        iconLp.topMargin = dp(1);
+        iconWrap.addView(icon, 0, iconLp);
+
+        TextView badge = text("Dual", 9f, Color.WHITE, true);
         badge.setGravity(Gravity.CENTER);
-        badge.setPadding(dp(9), dp(6), dp(9), dp(6));
-        badge.setBackground(roundRect(Color.rgb(27, 40, 61), dp(99)));
-        top.addView(badge);
-        body.addView(top);
+        badge.setPadding(dp(4), dp(1), dp(4), dp(1));
+        badge.setBackground(roundRect(BADGE, dp(8)));
+        FrameLayout.LayoutParams badgeLp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, dp(18), Gravity.RIGHT | Gravity.BOTTOM);
+        badgeLp.rightMargin = dp(1);
+        badgeLp.bottomMargin = dp(3);
+        iconWrap.addView(badge, badgeLp);
 
-        MaterialButton add = secondaryButton("Add plugin profile");
-        add.setOnClickListener(v -> addPluginProfile());
-        LinearLayout.LayoutParams addLp = fullButtonLp();
-        addLp.setMargins(0, dp(14), 0, 0);
-        body.addView(add, addLp);
-
-        pluginContainer = vertical();
-        body.addView(pluginContainer, matchWrap());
-        card.addView(body);
-        return card;
+        TextView label = text(app.label, 12f, TEXT, false);
+        label.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        label.setMaxLines(2);
+        label.setPadding(dp(1), dp(3), dp(1), 0);
+        tile.addView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        return tile;
     }
 
-    private View buildRuntimeCard() {
-        MaterialCardView card = card(CARD, 20);
-        LinearLayout body = vertical();
-        body.setPadding(dp(14), dp(14), dp(14), dp(14));
+    private View buildAddTile() {
+        LinearLayout tile = new LinearLayout(this);
+        tile.setOrientation(LinearLayout.VERTICAL);
+        tile.setGravity(Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        tile.setPadding(dp(4), dp(5), dp(4), 0);
+        tile.setBackground(selectableBackground());
+        tile.setOnClickListener(v -> chooseApp());
 
-        MaterialButton refresh = secondaryButton("Refresh runtime status");
-        refresh.setOnClickListener(v -> refreshAll());
-        body.addView(refresh, fullButtonLp());
+        FrameLayout addBox = new FrameLayout(this);
+        GradientDrawable outline = new GradientDrawable();
+        outline.setColor(Color.TRANSPARENT);
+        outline.setCornerRadius(dp(4));
+        outline.setStroke(dp(1), Color.rgb(165, 170, 179), dp(4), dp(3));
+        addBox.setBackground(outline);
+        tile.addView(addBox, new LinearLayout.LayoutParams(dp(56), dp(56)));
 
-        TextView note = text(
-                "The universal build keeps isolation and app lifecycle support, while Carrom-specific hooks and runtime anti-detection modules are excluded.",
-                12f,
-                MUTED,
-                false
-        );
-        note.setPadding(dp(4), dp(12), dp(4), dp(2));
-        body.addView(note);
-        card.addView(body);
-        return card;
-    }
+        TextView plus = text("+", 37f, BLUE, false);
+        plus.setGravity(Gravity.CENTER);
+        plus.setPadding(0, 0, 0, dp(4));
+        addBox.addView(plus, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
 
-    private View buildConsole() {
-        MaterialCardView card = card(Color.rgb(10, 15, 21), 18);
-        console = text("Starting runtime…", 12f, Color.rgb(174, 197, 191), false);
-        console.setTypeface(Typeface.MONOSPACE);
-        console.setTextIsSelectable(true);
-        console.setPadding(dp(16), dp(15), dp(16), dp(15));
-        console.setMinHeight(dp(116));
-        card.addView(console);
-        return card;
+        TextView label = text("Add app", 12f, MUTED, false);
+        label.setGravity(Gravity.CENTER_HORIZONTAL);
+        label.setPadding(0, dp(7), 0, 0);
+        tile.addView(label, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        return tile;
     }
 
     private void chooseApp() {
-        toast("Loading installed apps…");
+        if (loading) return;
+        loading = true;
+        toast("Loading apps…");
         worker.execute(() -> {
-            List<AppChoice> apps = new ArrayList<>();
-            PackageManager pm = getPackageManager();
-            try {
-                for (ApplicationInfo info : pm.getInstalledApplications(0)) {
-                    if (info.packageName.equals(getPackageName())) continue;
-                    if (pm.getLaunchIntentForPackage(info.packageName) == null) continue;
-                    CharSequence raw = pm.getApplicationLabel(info);
-                    String label = raw == null ? info.packageName : raw.toString();
-                    apps.add(new AppChoice(label, info.packageName));
-                }
-            } catch (Throwable error) {
-                runOnUiThread(() -> toast("Could not read installed apps"));
-                return;
-            }
-            apps.sort(Comparator.comparing(a -> a.label.toLowerCase()));
-            runOnUiThread(() -> showAppPicker(apps));
+            List<AppEntry> choices = loadHostAppsNotCloned();
+            runOnUiThread(() -> {
+                loading = false;
+                showAppPicker(choices);
+            });
         });
     }
 
-    private void showAppPicker(List<AppChoice> apps) {
+    private List<AppEntry> loadHostAppsNotCloned() {
+        ArrayList<AppEntry> apps = new ArrayList<>();
+        Set<String> cloned = new HashSet<>();
+        try {
+            for (InstalledPackage item : BPackageManager.get().getInstalledPackagesAsUser(USER_ID)) {
+                if (item != null && item.packageName != null) cloned.add(item.packageName);
+            }
+        } catch (Throwable ignored) {
+        }
+
+        PackageManager pm = getPackageManager();
+        try {
+            for (ApplicationInfo info : pm.getInstalledApplications(0)) {
+                if (info.packageName.equals(getPackageName())) continue;
+                if (cloned.contains(info.packageName)) continue;
+                if (pm.getLaunchIntentForPackage(info.packageName) == null) continue;
+                CharSequence raw = pm.getApplicationLabel(info);
+                String label = raw == null ? info.packageName : raw.toString();
+                Drawable icon = null;
+                try { icon = pm.getApplicationIcon(info); } catch (Throwable ignored) { }
+                apps.add(new AppEntry(label, info.packageName, icon));
+            }
+        } catch (Throwable ignored) {
+        }
+        apps.sort(Comparator.comparing(a -> a.label.toLowerCase()));
+        return apps;
+    }
+
+    private void showAppPicker(List<AppEntry> apps) {
         if (apps.isEmpty()) {
-            toast("No launchable apps found");
+            toast("No more launchable apps found");
             return;
         }
         String[] labels = new String[apps.size()];
         for (int i = 0; i < apps.size(); i++) {
-            AppChoice app = apps.get(i);
-            labels[i] = app.label + "\n" + app.packageName;
+            labels[i] = apps.get(i).label + "\n" + apps.get(i).packageName;
         }
         new AlertDialog.Builder(this)
-                .setTitle("Choose virtual app")
-                .setItems(labels, (dialog, which) -> {
-                    AppChoice choice = apps.get(which);
-                    selectedPackage = choice.packageName;
-                    TargetStore.setSelectedPackage(this, selectedPackage);
-                    refreshAll();
+                .setTitle("Add app")
+                .setItems(labels, (dialog, which) -> cloneApp(apps.get(which)))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void cloneApp(AppEntry app) {
+        if (loading) return;
+        loading = true;
+        toast("Creating " + app.label + "…");
+        worker.execute(() -> {
+            try {
+                CarromRuntimeCore core = CarromRuntimeCore.get();
+                InstallResult result = core.installPackageAsUser(app.packageName, USER_ID);
+                runOnUiThread(() -> {
+                    loading = false;
+                    if (result.success) {
+                        toast(app.label + " cloned");
+                        refreshGrid();
+                    } else {
+                        showError("Clone failed", result.msg);
+                    }
+                });
+            } catch (Throwable error) {
+                runOnUiThread(() -> {
+                    loading = false;
+                    showError("Clone failed", String.valueOf(error));
+                });
+            }
+        });
+    }
+
+    private void launchVirtual(String packageName) {
+        TargetStore.setSelectedPackage(this, packageName);
+        worker.execute(() -> {
+            try {
+                boolean launched = CarromRuntimeCore.get().launchApk(packageName, USER_ID);
+                if (!launched) runOnUiThread(() -> toast("Could not open app"));
+            } catch (Throwable error) {
+                runOnUiThread(() -> showError("Launch error", String.valueOf(error)));
+            }
+        });
+    }
+
+    private void showAppActions(AppEntry app) {
+        String[] actions = {"Open", "Plugins", "Reset clone"};
+        new AlertDialog.Builder(this)
+                .setTitle(app.label)
+                .setItems(actions, (dialog, which) -> {
+                    if (which == 0) launchVirtual(app.packageName);
+                    else if (which == 1) showPluginManager(app);
+                    else confirmReset(app);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    private void setupAndLaunch() {
-        if (selectedPackage.isEmpty()) {
-            chooseApp();
-            return;
-        }
-        primaryAction.setEnabled(false);
-        primaryAction.setText("PREPARING…");
-        setConsole("Preparing virtual workspace for\n" + selectedPackage);
-
-        worker.execute(() -> {
-            try {
-                CarromRuntimeCore core = CarromRuntimeCore.get();
-                if (!core.isInstalled(selectedPackage, USER_ID)) {
-                    InstallResult result = core.installPackageAsUser(selectedPackage, USER_ID);
-                    if (!result.success) {
-                        runOnUiThread(() -> {
-                            primaryAction.setEnabled(true);
-                            setConsole("INSTALL FAILED\n" + result.msg);
-                            refreshStatus();
-                        });
-                        return;
-                    }
-                }
-                boolean launched = core.launchApk(selectedPackage, USER_ID);
-                runOnUiThread(() -> {
-                    primaryAction.setEnabled(true);
-                    refreshAll();
-                    if (!launched) toast("Virtual launch returned false");
-                });
-            } catch (Throwable error) {
-                runOnUiThread(() -> {
-                    primaryAction.setEnabled(true);
-                    setConsole("LAUNCH ERROR\n" + error);
-                    refreshStatus();
-                });
-            }
-        });
-    }
-
-    private void confirmReset() {
-        if (selectedPackage.isEmpty()) {
-            toast("Choose an app first");
-            return;
-        }
+    private void confirmReset(AppEntry app) {
         new AlertDialog.Builder(this)
-                .setTitle("Reset virtual app?")
-                .setMessage("This removes only the isolated copy of " + selectedPackage + ". The original installation is untouched.")
+                .setTitle("Remove cloned app?")
+                .setMessage("This deletes only the isolated copy of " + app.label + ". The original app is untouched.")
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton("Reset", (dialog, which) -> resetVirtual())
+                .setPositiveButton("Remove", (dialog, which) -> resetVirtual(app))
                 .show();
     }
 
-    private void resetVirtual() {
-        final String target = selectedPackage;
-        setConsole("Resetting virtual workspace…");
+    private void resetVirtual(AppEntry app) {
         worker.execute(() -> {
             try {
-                CarromRuntimeCore.get().uninstallPackageAsUser(target, USER_ID);
+                CarromRuntimeCore.get().uninstallPackageAsUser(app.packageName, USER_ID);
                 runOnUiThread(() -> {
-                    setConsole("Virtual copy removed.\nOriginal app was not changed.");
-                    refreshAll();
+                    toast("Clone removed");
+                    refreshGrid();
                 });
             } catch (Throwable error) {
-                runOnUiThread(() -> setConsole("RESET ERROR\n" + error));
+                runOnUiThread(() -> showError("Remove failed", String.valueOf(error)));
             }
         });
     }
 
-    private void addPluginProfile() {
-        if (selectedPackage.isEmpty()) {
-            toast("Choose an app first");
-            return;
+    private void showPluginManager(AppEntry app) {
+        List<WorkspacePluginRegistry.Plugin> source = WorkspacePluginRegistry.list(this);
+        ArrayList<WorkspacePluginRegistry.Plugin> plugins = new ArrayList<>();
+        for (WorkspacePluginRegistry.Plugin plugin : source) {
+            if (plugin.targetPackage.equals(app.packageName)) plugins.add(plugin);
         }
-        LinearLayout form = vertical();
-        int pad = dp(18);
-        form.setPadding(pad, dp(4), pad, 0);
+
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setPadding(dp(22), dp(2), dp(22), dp(4));
+
+        TextView summary = text(plugins.isEmpty()
+                ? "No plugin profiles for this app."
+                : plugins.size() + " plugin profile(s)", 13f, MUTED, false);
+        summary.setPadding(0, dp(4), 0, dp(12));
+        body.addView(summary);
+
+        for (WorkspacePluginRegistry.Plugin plugin : plugins) {
+            TextView row = text((plugin.enabled ? "● " : "○ ") + plugin.name, 14f,
+                    plugin.enabled ? TEXT : MUTED, false);
+            row.setPadding(0, dp(8), 0, dp(8));
+            row.setOnClickListener(v -> {
+                WorkspacePluginRegistry.setEnabled(this, plugin.id, !plugin.enabled);
+                showPluginManager(app);
+            });
+            row.setOnLongClickListener(v -> {
+                WorkspacePluginRegistry.remove(this, plugin.id);
+                toast("Plugin profile removed");
+                showPluginManager(app);
+                return true;
+            });
+            body.addView(row);
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle(app.label + " plugins")
+                .setView(body)
+                .setPositiveButton("Add profile", (dialog, which) -> addPluginProfile(app))
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    private void addPluginProfile(AppEntry app) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        form.setPadding(dp(20), dp(4), dp(20), 0);
         EditText name = new EditText(this);
         name.setHint("Plugin name");
         EditText description = new EditText(this);
-        description.setHint("Description or workspace note");
-        form.addView(name, matchWrap());
-        form.addView(description, matchWrap());
+        description.setHint("Description / notes");
+        form.addView(name, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        form.addView(description, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
         new AlertDialog.Builder(this)
                 .setTitle("New plugin profile")
                 .setView(form)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Add", (dialog, which) -> {
-                    WorkspacePluginRegistry.add(
-                            this,
+                    WorkspacePluginRegistry.add(this,
                             name.getText().toString(),
-                            selectedPackage,
-                            description.getText().toString()
-                    );
-                    renderPlugins();
+                            app.packageName,
+                            description.getText().toString());
+                    toast("Plugin profile added");
                 })
                 .show();
     }
 
-    private void renderPlugins() {
-        if (pluginContainer == null) return;
-        pluginContainer.removeAllViews();
-        List<WorkspacePluginRegistry.Plugin> all = WorkspacePluginRegistry.list(this);
-        List<WorkspacePluginRegistry.Plugin> visible = new ArrayList<>();
-        for (WorkspacePluginRegistry.Plugin plugin : all) {
-            if (selectedPackage.isEmpty() || plugin.targetPackage.isEmpty() || plugin.targetPackage.equals(selectedPackage)) {
-                visible.add(plugin);
-            }
-        }
-        if (pluginSummary != null) {
-            pluginSummary.setText(visible.isEmpty()
-                    ? "No plugin profiles"
-                    : visible.size() + (visible.size() == 1 ? " plugin profile" : " plugin profiles"));
-        }
-        for (WorkspacePluginRegistry.Plugin plugin : visible) {
-            MaterialCardView item = card(Color.rgb(12, 19, 27), 16);
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(14), dp(12), dp(10), dp(12));
-
-            LinearLayout copy = vertical();
-            TextView title = text(plugin.name, 14f, TEXT, true);
-            TextView desc = text(plugin.description, 11.5f, MUTED, false);
-            desc.setPadding(0, dp(3), dp(8), 0);
-            copy.addView(title);
-            copy.addView(desc);
-            row.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-            SwitchMaterial toggle = new SwitchMaterial(this);
-            toggle.setChecked(plugin.enabled);
-            toggle.setOnCheckedChangeListener((button, checked) -> {
-                WorkspacePluginRegistry.setEnabled(this, plugin.id, checked);
-                refreshStatus();
-            });
-            row.addView(toggle);
-
-            TextView remove = text("×", 22f, DANGER, true);
-            remove.setGravity(Gravity.CENTER);
-            remove.setPadding(dp(9), 0, dp(4), 0);
-            remove.setOnClickListener(v -> {
-                WorkspacePluginRegistry.remove(this, plugin.id);
-                renderPlugins();
-                refreshStatus();
-            });
-            row.addView(remove, new LinearLayout.LayoutParams(dp(38), dp(44)));
-            item.addView(row);
-
-            LinearLayout.LayoutParams lp = matchWrap();
-            lp.setMargins(0, dp(10), 0, 0);
-            pluginContainer.addView(item, lp);
-        }
+    private void showMainMenu(View anchor) {
+        PopupMenu menu = new PopupMenu(this, anchor);
+        menu.getMenu().add("Add app");
+        menu.getMenu().add("Refresh");
+        menu.getMenu().add("About");
+        menu.setOnMenuItemClickListener(item -> {
+            String title = String.valueOf(item.getTitle());
+            if (title.equals("Add app")) chooseApp();
+            else if (title.equals("Refresh")) refreshGrid();
+            else showAbout();
+            return true;
+        });
+        menu.show();
     }
 
-    private void refreshAll() {
-        refreshSelectedApp();
-        renderPlugins();
-        refreshStatus();
-    }
-
-    private void refreshSelectedApp() {
-        if (selectedName == null) return;
-        if (selectedPackage.isEmpty()) {
-            selectedName.setText("Choose an app");
-            selectedPackageView.setText("No workspace selected");
-            selectedIcon.setImageDrawable(null);
-            primaryAction.setText("CHOOSE APP");
-            return;
-        }
+    private void showSettings() {
+        boolean runtimeOnline = false;
+        int cloneCount = 0;
         try {
-            PackageManager pm = getPackageManager();
-            ApplicationInfo info = pm.getApplicationInfo(selectedPackage, 0);
-            selectedName.setText(pm.getApplicationLabel(info));
-            selectedPackageView.setText(selectedPackage);
-            Drawable icon = pm.getApplicationIcon(info);
-            selectedIcon.setImageDrawable(icon);
-        } catch (Throwable error) {
-            selectedName.setText("Unavailable app");
-            selectedPackageView.setText(selectedPackage);
-            selectedIcon.setImageDrawable(null);
-        }
-    }
-
-    private void refreshStatus() {
-        boolean services = false;
-        boolean virtualInstalled = false;
-        try {
-            CarromRuntimeCore core = CarromRuntimeCore.get();
-            services = core.areServicesAvailable();
-            if (!selectedPackage.isEmpty()) {
-                virtualInstalled = core.isInstalled(selectedPackage, USER_ID);
-            }
+            runtimeOnline = CarromRuntimeCore.get().areServicesAvailable();
+            cloneCount = BPackageManager.get().getInstalledPackagesAsUser(USER_ID).size();
         } catch (Throwable ignored) {
         }
 
-        if (runtimeBadge != null) {
-            runtimeBadge.setText(services ? "ONLINE" : "STARTING");
-            runtimeBadge.setTextColor(services ? ACCENT : WARNING);
-            runtimeBadge.setBackground(roundRect(
-                    services ? Color.rgb(20, 50, 42) : Color.rgb(48, 40, 24),
-                    dp(99)
-            ));
-        }
-
-        if (runtimeDetail != null) {
-            if (selectedPackage.isEmpty()) {
-                runtimeDetail.setText("Select an installed app to create a virtual workspace.");
-            } else {
-                int profiles = WorkspacePluginRegistry.countEnabledFor(this, selectedPackage);
-                runtimeDetail.setText(
-                        (virtualInstalled ? "Virtual instance ready" : "Virtual instance not prepared")
-                                + "  •  " + profiles + (profiles == 1 ? " profile enabled" : " profiles enabled")
-                );
-            }
-        }
-
-        if (primaryAction != null && primaryAction.isEnabled()) {
-            if (selectedPackage.isEmpty()) primaryAction.setText("CHOOSE APP");
-            else primaryAction.setText(virtualInstalled ? "OPEN VIRTUAL APP" : "SET UP & OPEN");
-        }
-
-        if (console != null) {
-            StringBuilder text = new StringBuilder();
-            text.append("runtime=").append(services ? "ONLINE" : "STARTING");
-            text.append("\nselected=").append(selectedPackage.isEmpty() ? "none" : selectedPackage);
-            text.append("\nvirtual=").append(virtualInstalled ? "READY" : "NOT_PREPARED");
-            if (!selectedPackage.isEmpty()) {
-                text.append("\nprofiles=").append(WorkspacePluginRegistry.countEnabledFor(this, selectedPackage));
-            }
-            console.setText(text.toString());
-        }
+        String message = "Runtime: " + (runtimeOnline ? "online" : "starting")
+                + "\nCloned apps: " + cloneCount
+                + "\n\nLong-press an app to manage plugins or remove its clone.";
+        new AlertDialog.Builder(this)
+                .setTitle("Universal Loader")
+                .setMessage(message)
+                .setPositiveButton("Refresh", (dialog, which) -> refreshGrid())
+                .setNegativeButton("Close", null)
+                .show();
     }
 
-    private View sectionTitle(String title, String subtitle) {
-        LinearLayout box = vertical();
-        box.setPadding(0, dp(20), 0, dp(10));
-        TextView t = text(title, 11f, MUTED, true);
-        t.setLetterSpacing(0.14f);
-        box.addView(t);
-        TextView s = text(subtitle, 12.5f, MUTED, false);
-        s.setPadding(0, dp(4), 0, 0);
-        box.addView(s);
-        return box;
+    private void showAbout() {
+        new AlertDialog.Builder(this)
+                .setTitle("Universal Loader")
+                .setMessage("Isolated multi-app workspace. Tap + to clone an installed app, tap a tile to launch it, or long-press for options.")
+                .setPositiveButton("OK", null)
+                .show();
     }
 
-    private MaterialCardView card(int color, int radiusDp) {
-        MaterialCardView card = new MaterialCardView(this);
-        card.setCardBackgroundColor(color);
-        card.setRadius(dp(radiusDp));
-        card.setCardElevation(0f);
-        card.setStrokeColor(STROKE);
-        card.setStrokeWidth(dp(1));
-        return card;
+    private void showError(String title, String message) {
+        new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(message == null ? "Unknown error" : message)
+                .setPositiveButton("OK", null)
+                .show();
     }
 
-    private MaterialButton primaryButton(String label) {
-        MaterialButton button = new MaterialButton(this);
-        button.setText(label);
-        button.setAllCaps(false);
-        button.setTextSize(15f);
-        button.setTypeface(Typeface.DEFAULT_BOLD);
-        button.setTextColor(BG);
-        button.setBackgroundTintList(ColorStateList.valueOf(ACCENT));
-        button.setCornerRadius(dp(17));
-        button.setInsetTop(0);
-        button.setInsetBottom(0);
-        return button;
-    }
-
-    private MaterialButton secondaryButton(String label) {
-        MaterialButton button = new MaterialButton(this);
-        button.setText(label);
-        button.setAllCaps(false);
-        button.setTextSize(14f);
-        button.setTextColor(TEXT);
-        button.setBackgroundTintList(ColorStateList.valueOf(Color.TRANSPARENT));
-        button.setStrokeColor(ColorStateList.valueOf(STROKE));
-        button.setStrokeWidth(dp(1));
-        button.setCornerRadius(dp(15));
-        button.setInsetTop(0);
-        button.setInsetBottom(0);
-        return button;
-    }
-
-    private LinearLayout vertical() {
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        return layout;
-    }
-
-    private TextView text(CharSequence value, float size, int color, boolean bold) {
+    private TextView text(String value, float size, int color, boolean bold) {
         TextView view = new TextView(this);
         view.setText(value);
         view.setTextSize(size);
@@ -644,23 +568,21 @@ public final class MainActivity extends AppCompatActivity {
         return view;
     }
 
-    private android.graphics.drawable.GradientDrawable roundRect(int color, int radius) {
-        android.graphics.drawable.GradientDrawable drawable = new android.graphics.drawable.GradientDrawable();
+    private GradientDrawable roundRect(int color, float radiusPx) {
+        GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(color);
-        drawable.setCornerRadius(radius);
+        drawable.setCornerRadius(radiusPx);
         return drawable;
     }
 
-    private LinearLayout.LayoutParams matchWrap() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-    }
-
-    private LinearLayout.LayoutParams fullButtonLp() {
-        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50));
-    }
-
-    private void setConsole(String value) {
-        if (console != null) console.setText(value);
+    private Drawable selectableBackground() {
+        android.util.TypedValue out = new android.util.TypedValue();
+        getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, out, true);
+        try {
+            return getDrawable(out.resourceId);
+        } catch (Throwable ignored) {
+            return ColorDrawableCompat.transparent();
+        }
     }
 
     private void toast(String value) {
@@ -671,13 +593,21 @@ public final class MainActivity extends AppCompatActivity {
         return Math.round(value * getResources().getDisplayMetrics().density);
     }
 
-    private static final class AppChoice {
+    private static final class AppEntry {
         final String label;
         final String packageName;
+        final Drawable icon;
 
-        AppChoice(String label, String packageName) {
-            this.label = label;
+        AppEntry(String label, String packageName, Drawable icon) {
+            this.label = label == null || label.trim().isEmpty() ? packageName : label;
             this.packageName = packageName;
+            this.icon = icon;
+        }
+    }
+
+    private static final class ColorDrawableCompat {
+        static Drawable transparent() {
+            return new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT);
         }
     }
 }
