@@ -12,7 +12,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -186,7 +185,7 @@ final class NativePluginRuntime {
     private static void loadOne(WorkspacePluginRegistry.Plugin plugin,
                                 File library,
                                 String packageName,
-                                String processName) throws IOException {
+                                String processName) throws Throwable {
         if (library == null || !library.isFile()) {
             Log.w(TAG, "Library missing for plugin " + plugin.name + ": " + library);
             return;
@@ -207,7 +206,6 @@ final class NativePluginRuntime {
                     + " path=" + absolute);
         } catch (Throwable error) {
             LOADED_PATHS.remove(absolute);
-            if (error instanceof UnsatisfiedLinkError) throw (UnsatisfiedLinkError) error;
             throw error;
         }
     }
