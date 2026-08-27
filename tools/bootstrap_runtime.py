@@ -25,16 +25,14 @@ for name in ('runtime-core', 'runtime-bridge', 'runtime-codegen', 'licenses'):
 
 # Remove target-specific and environment-hiding native modules from the universal build.
 android_mk = ROOT / 'runtime-core/src/main/cpp/Android.mk'
-text = android_mk.read_text(encoding='utf-8')
-for source_name in (
+blocked_sources = (
     'Hook/CarromAimHook.cpp',
     'Utils/AntiDetection.cpp',
     'Utils/VirtualSpoof.cpp',
-):
-    text = text.replace('\\\n' + source_name + ' \\\n', '\\\n')
-    text = text.replace(source_name + ' \\\n', '')
-    text = text.replace(source_name + '\n', '')
-text = text.replace('LOCAL_MODULE := carromruntime', 'LOCAL_MODULE := universalruntime')
+)
+lines = android_mk.read_text(encoding='utf-8').splitlines(keepends=True)
+lines = [line for line in lines if not any(name in line for name in blocked_sources)]
+text = ''.join(lines).replace('LOCAL_MODULE := carromruntime', 'LOCAL_MODULE := universalruntime')
 android_mk.write_text(text, encoding='utf-8')
 
 for relative in (
