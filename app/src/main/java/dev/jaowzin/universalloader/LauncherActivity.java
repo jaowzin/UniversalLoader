@@ -197,30 +197,54 @@ public final class LauncherActivity extends AppCompatActivity {
         content.setPadding(dp(14), dp(14), dp(14), dp(28));
 
         LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setOrientation(LinearLayout.VERTICAL);
         header.setPadding(dp(4), dp(2), dp(4), dp(12));
 
-        LinearLayout copy = new LinearLayout(this);
-        copy.setOrientation(LinearLayout.VERTICAL);
-        TextView title = text("Plugin profiles", 18f, TEXT, true);
-        TextView subtitle = text("Profiles and settings linked to cloned apps", 12f, MUTED, false);
-        subtitle.setPadding(0, dp(2), 0, 0);
-        copy.addView(title);
-        copy.addView(subtitle);
-        header.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView title = text("Plugins", 18f, TEXT, true);
+        TextView subtitle = text("Load native .so libraries inside cloned app processes", 12f, MUTED, false);
+        subtitle.setPadding(0, dp(2), 0, dp(12));
+        header.addView(title);
+        header.addView(subtitle);
 
-        TextView add = text("+  Add", 14f, BLUE, true);
-        add.setGravity(Gravity.CENTER);
-        add.setPadding(dp(12), dp(8), dp(12), dp(8));
-        add.setBackground(roundRect(Color.rgb(233, 239, 255), dp(14)));
-        add.setOnClickListener(v -> choosePluginTarget());
-        header.addView(add);
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+
+        TextView importSo = text("⇩  Import .so", 14f, Color.WHITE, true);
+        importSo.setGravity(Gravity.CENTER);
+        importSo.setPadding(dp(15), dp(10), dp(15), dp(10));
+        importSo.setBackground(roundRect(BLUE, dp(14)));
+        importSo.setOnClickListener(v -> openNativePluginImporter());
+        actions.addView(importSo, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView addProfile = text("+  Profile", 14f, BLUE, true);
+        addProfile.setGravity(Gravity.CENTER);
+        addProfile.setPadding(dp(12), dp(10), dp(12), dp(10));
+        addProfile.setBackground(roundRect(Color.rgb(233, 239, 255), dp(14)));
+        addProfile.setOnClickListener(v -> choosePluginTarget());
+        LinearLayout.LayoutParams profileLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT);
+        profileLp.leftMargin = dp(8);
+        actions.addView(addProfile, profileLp);
+
+        header.addView(actions, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         content.addView(header);
 
-        pluginsEmpty = text("No plugins yet. Tap Add to create a plugin profile.", 13f, MUTED, false);
+        TextView nativeHelp = text(
+                "Import .so → select library → choose cloned app → optionally set a process. " +
+                        "Enabled native plugins are loaded before the target Application.onCreate().",
+                11.5f,
+                MUTED,
+                false);
+        nativeHelp.setPadding(dp(6), dp(2), dp(6), dp(14));
+        content.addView(nativeHelp);
+
+        pluginsEmpty = text("No plugins yet. Tap Import .so to add a native library.", 13f, MUTED, false);
         pluginsEmpty.setGravity(Gravity.CENTER);
-        pluginsEmpty.setPadding(dp(18), dp(36), dp(18), dp(18));
+        pluginsEmpty.setPadding(dp(18), dp(26), dp(18), dp(18));
         content.addView(pluginsEmpty);
 
         pluginList = new LinearLayout(this);
@@ -233,6 +257,14 @@ public final class LauncherActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         return scroll;
+    }
+
+    private void openNativePluginImporter() {
+        try {
+            startActivity(new Intent(this, NativePluginImportActivity.class));
+        } catch (Throwable error) {
+            showError("Could not open .so importer", String.valueOf(error));
+        }
     }
 
     private void refreshApps() {
@@ -465,18 +497,33 @@ public final class LauncherActivity extends AppCompatActivity {
 
         LinearLayout copy = new LinearLayout(this);
         copy.setOrientation(LinearLayout.VERTICAL);
+        String typeLabel = plugin.isNativeLibrary() ? "Native .so" : "Profile";
         TextView name = text(plugin.name, 16f, TEXT, true);
-        TextView pkg = text(plugin.targetPackage.isEmpty() ? "All workspaces" : plugin.targetPackage,
+        TextView pkg = text(typeLabel + "  •  " +
+                        (plugin.targetPackage.isEmpty() ? "All workspaces" : plugin.targetPackage),
                 11.5f, BLUE, false);
         pkg.setPadding(0, dp(2), 0, 0);
         copy.addView(name);
         copy.addView(pkg);
+
+        if (plugin.isNativeLibrary()) {
+            String process = plugin.processName.isEmpty() ? "all app processes" : plugin.processName;
+            String phase = WorkspacePluginRegistry.PHASE_AFTER_ONCREATE.equals(plugin.loadPhase)
+                    ? "after Application.onCreate"
+                    : "before Application.onCreate";
+            TextView runtime = text("Process: " + process + "  •  Load: " + phase,
+                    10.5f, MUTED, false);
+            runtime.setPadding(0, dp(3), 0, 0);
+            copy.addView(runtime);
+        }
+
         top.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         SwitchMaterial toggle = new SwitchMaterial(this);
         toggle.setChecked(plugin.enabled);
         toggle.setOnCheckedChangeListener((button, checked) -> {
             WorkspacePluginRegistry.setEnabled(this, plugin.id, checked);
+            NativePluginRuntime.reload(this);
             refreshPlugins();
         });
         top.addView(toggle);
@@ -498,12 +545,16 @@ public final class LauncherActivity extends AppCompatActivity {
     private void showPluginMenu(View anchor, WorkspacePluginRegistry.Plugin plugin) {
         PopupMenu menu = new PopupMenu(this, anchor);
         menu.getMenu().add(plugin.enabled ? "Disable" : "Enable");
+        if (plugin.isNativeLibrary()) menu.getMenu().add("Import another .so");
         menu.getMenu().add("Remove plugin");
         menu.setOnMenuItemClickListener(item -> {
             String action = String.valueOf(item.getTitle());
             if (action.equals("Enable") || action.equals("Disable")) {
                 WorkspacePluginRegistry.setEnabled(this, plugin.id, !plugin.enabled);
+                NativePluginRuntime.reload(this);
                 refreshPlugins();
+            } else if (action.equals("Import another .so")) {
+                openNativePluginImporter();
             } else {
                 confirmRemovePlugin(plugin);
             }
@@ -513,12 +564,17 @@ public final class LauncherActivity extends AppCompatActivity {
     }
 
     private void confirmRemovePlugin(WorkspacePluginRegistry.Plugin plugin) {
+        String detail = plugin.isNativeLibrary() ? "Native .so" : "Plugin profile";
         new AlertDialog.Builder(this)
                 .setTitle("Remove plugin?")
-                .setMessage(plugin.name + "\n" + plugin.targetPackage)
+                .setMessage(plugin.name + "\n" + detail + "\n" + plugin.targetPackage)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Remove", (dialog, which) -> {
+                    if (plugin.isNativeLibrary()) {
+                        NativePluginRuntime.removePluginFiles(this, plugin);
+                    }
                     WorkspacePluginRegistry.remove(this, plugin.id);
+                    NativePluginRuntime.reload(this);
                     refreshPlugins();
                     toast("Plugin removed");
                 })
@@ -538,7 +594,7 @@ public final class LauncherActivity extends AppCompatActivity {
                     names[i] = clones.get(i).label + "\n" + clones.get(i).packageName;
                 }
                 new AlertDialog.Builder(this)
-                        .setTitle("Plugin target")
+                        .setTitle("Profile target")
                         .setItems(names, (dialog, which) -> showCreatePlugin(clones.get(which)))
                         .setNegativeButton("Cancel", null)
                         .show();
@@ -556,7 +612,7 @@ public final class LauncherActivity extends AppCompatActivity {
         form.addView(target);
 
         EditText name = new EditText(this);
-        name.setHint("Plugin name");
+        name.setHint("Profile name");
         form.addView(name, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
@@ -568,7 +624,7 @@ public final class LauncherActivity extends AppCompatActivity {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 
         new AlertDialog.Builder(this)
-                .setTitle("New plugin")
+                .setTitle("New profile")
                 .setView(form)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Add", (dialog, which) -> {
@@ -578,9 +634,10 @@ public final class LauncherActivity extends AppCompatActivity {
                             app.packageName,
                             description.getText().toString()
                     );
+                    NativePluginRuntime.reload(this);
                     refreshPlugins();
                     pager.setCurrentItem(1, true);
-                    toast("Plugin added");
+                    toast("Profile added");
                 })
                 .show();
     }
@@ -590,6 +647,7 @@ public final class LauncherActivity extends AppCompatActivity {
         menu.getMenu().add("App Library");
         menu.getMenu().add("Apps");
         menu.getMenu().add("Plugins");
+        menu.getMenu().add("Import native .so");
         menu.getMenu().add("Refresh");
         menu.getMenu().add("About");
         menu.setOnMenuItemClickListener(item -> {
@@ -597,7 +655,9 @@ public final class LauncherActivity extends AppCompatActivity {
             if (title.equals("App Library")) startActivity(new Intent(this, AppLibraryActivity.class));
             else if (title.equals("Apps")) pager.setCurrentItem(0, true);
             else if (title.equals("Plugins")) pager.setCurrentItem(1, true);
+            else if (title.equals("Import native .so")) openNativePluginImporter();
             else if (title.equals("Refresh")) {
+                NativePluginRuntime.reload(this);
                 refreshApps();
                 refreshPlugins();
             } else showAbout();
@@ -618,8 +678,8 @@ public final class LauncherActivity extends AppCompatActivity {
                 .setTitle("Universal Loader")
                 .setMessage("Runtime: " + (online ? "online" : "starting")
                         + "\nCloned apps: " + clones
-                        + "\nPlugin profiles: " + plugins
-                        + "\n\nSwipe left or right between Apps and Plugins.")
+                        + "\nPlugins: " + plugins
+                        + "\n\nUse Plugins → Import .so to load a native library into a cloned app process.")
                 .setPositiveButton("App Library", (dialog, which) ->
                         startActivity(new Intent(this, AppLibraryActivity.class)))
                 .setNegativeButton("Close", null)
@@ -629,7 +689,7 @@ public final class LauncherActivity extends AppCompatActivity {
     private void showAbout() {
         new AlertDialog.Builder(this)
                 .setTitle("Universal Loader")
-                .setMessage("Apps and Plugins are separate swipeable tabs. Use ⋮ on a clone to open details, manage plugins, or remove the isolated copy.")
+                .setMessage("Clone an app, open the Plugins tab, tap Import .so, select a native library and choose the target workspace. Enabled native plugins are loaded inside the virtual app process.")
                 .setPositiveButton("OK", null)
                 .show();
     }
