@@ -14,19 +14,51 @@ import java.util.List;
 import java.util.UUID;
 
 final class WorkspacePluginRegistry {
+    static final String KIND_PROFILE = "profile";
+    static final String KIND_NATIVE_LIBRARY = "native_library";
+    static final String PHASE_BEFORE_ONCREATE = "before_oncreate";
+    static final String PHASE_AFTER_ONCREATE = "after_oncreate";
+
     static final class Plugin {
         final String id;
         final String name;
         final String targetPackage;
         final String description;
         final boolean enabled;
+        final String kind;
+        final String libraryFile;
+        final String processName;
+        final String loadPhase;
 
-        Plugin(String id, String name, String targetPackage, String description, boolean enabled) {
+        Plugin(String id,
+               String name,
+               String targetPackage,
+               String description,
+               boolean enabled,
+               String kind,
+               String libraryFile,
+               String processName,
+               String loadPhase) {
             this.id = id;
             this.name = name;
             this.targetPackage = targetPackage;
             this.description = description;
             this.enabled = enabled;
+            this.kind = clean(kind, KIND_PROFILE);
+            this.libraryFile = clean(libraryFile, "");
+            this.processName = clean(processName, "");
+            this.loadPhase = clean(loadPhase, PHASE_BEFORE_ONCREATE);
+        }
+
+        boolean isNativeLibrary() {
+            return KIND_NATIVE_LIBRARY.equals(kind) && !libraryFile.isEmpty();
+        }
+
+        boolean matches(String packageName, String processName, String phase) {
+            if (!enabled) return false;
+            if (!targetPackage.isEmpty() && !targetPackage.equals(packageName)) return false;
+            if (!this.processName.isEmpty() && !this.processName.equals(processName)) return false;
+            return loadPhase.equals(phase);
         }
     }
 
@@ -49,7 +81,38 @@ final class WorkspacePluginRegistry {
                     clean(name, "Plugin profile"),
                     clean(targetPackage, ""),
                     clean(description, "Loader-side workspace extension"),
-                    true
+                    true,
+                    KIND_PROFILE,
+                    "",
+                    "",
+                    PHASE_BEFORE_ONCREATE
+            );
+            plugins.add(plugin);
+            write(context, plugins);
+            return plugin;
+        }
+    }
+
+    static Plugin addNativeLibrary(Context context,
+                                   String id,
+                                   String name,
+                                   String targetPackage,
+                                   String description,
+                                   String libraryFile,
+                                   String processName,
+                                   String loadPhase) {
+        synchronized (LOCK) {
+            List<Plugin> plugins = read(context);
+            Plugin plugin = new Plugin(
+                    clean(id, UUID.randomUUID().toString()),
+                    clean(name, "Native library"),
+                    clean(targetPackage, ""),
+                    clean(description, "Native library loaded inside the virtual app process"),
+                    true,
+                    KIND_NATIVE_LIBRARY,
+                    clean(libraryFile, ""),
+                    clean(processName, ""),
+                    clean(loadPhase, PHASE_BEFORE_ONCREATE)
             );
             plugins.add(plugin);
             write(context, plugins);
@@ -63,7 +126,16 @@ final class WorkspacePluginRegistry {
             List<Plugin> result = new ArrayList<>();
             for (Plugin plugin : source) {
                 result.add(plugin.id.equals(id)
-                        ? new Plugin(plugin.id, plugin.name, plugin.targetPackage, plugin.description, enabled)
+                        ? new Plugin(
+                                plugin.id,
+                                plugin.name,
+                                plugin.targetPackage,
+                                plugin.description,
+                                enabled,
+                                plugin.kind,
+                                plugin.libraryFile,
+                                plugin.processName,
+                                plugin.loadPhase)
                         : plugin);
             }
             write(context, result);
@@ -106,7 +178,11 @@ final class WorkspacePluginRegistry {
                         item.optString("name", "Plugin profile"),
                         item.optString("targetPackage", ""),
                         item.optString("description", ""),
-                        item.optBoolean("enabled", true)
+                        item.optBoolean("enabled", true),
+                        item.optString("kind", KIND_PROFILE),
+                        item.optString("libraryFile", ""),
+                        item.optString("processName", ""),
+                        item.optString("loadPhase", PHASE_BEFORE_ONCREATE)
                 ));
             }
         } catch (Throwable ignored) {
@@ -125,6 +201,10 @@ final class WorkspacePluginRegistry {
                 item.put("targetPackage", plugin.targetPackage);
                 item.put("description", plugin.description);
                 item.put("enabled", plugin.enabled);
+                item.put("kind", plugin.kind);
+                item.put("libraryFile", plugin.libraryFile);
+                item.put("processName", plugin.processName);
+                item.put("loadPhase", plugin.loadPhase);
                 array.put(item);
             }
             try (FileOutputStream output = new FileOutputStream(file, false)) {
