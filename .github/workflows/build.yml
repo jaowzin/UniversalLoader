@@ -79,6 +79,27 @@ jobs:
             -o sample-plugins/floating-menu/out/arm64-v8a/libul_floating_menu.so
           file sample-plugins/floating-menu/out/arm64-v8a/libul_floating_menu.so
 
+      - name: Build Carrom CTF trajectory plugin
+        shell: bash
+        run: |
+          set -e
+          NDK="$ANDROID_SDK_ROOT/ndk/29.0.13846066"
+          CLANG="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android26-clang++"
+          mkdir -p sample-plugins/carrom-ctf/out/arm64-v8a
+          "$CLANG" \
+            -shared \
+            -fPIC \
+            -fvisibility=hidden \
+            -O2 \
+            -std=c++17 \
+            -I runtime-core/src/main/cpp \
+            sample-plugins/carrom-ctf/carrom_ctf.cpp \
+            runtime-core/src/main/cpp/Dobby/arm64-v8a/libdobby.a \
+            -llog -ldl \
+            -Wl,--exclude-libs,ALL \
+            -o sample-plugins/carrom-ctf/out/arm64-v8a/libul_carrom_ctf.so
+          file sample-plugins/carrom-ctf/out/arm64-v8a/libul_carrom_ctf.so
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
@@ -106,4 +127,11 @@ jobs:
         with:
           name: ULFloatingMenu-arm64-v8a
           path: sample-plugins/floating-menu/out/arm64-v8a/libul_floating_menu.so
+          if-no-files-found: error
+
+      - name: Upload Carrom CTF plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: ULCarromCTF-arm64-v8a
+          path: sample-plugins/carrom-ctf/out/arm64-v8a/libul_carrom_ctf.so
           if-no-files-found: error
