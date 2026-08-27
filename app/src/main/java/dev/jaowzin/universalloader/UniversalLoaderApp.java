@@ -97,6 +97,7 @@ public final class UniversalLoaderApp extends Application {
             public void beforeApplicationOnCreate(String packageName, String processName, Application application, int userId) {
                 Log.d(TAG, "virtual beforeOnCreate " + packageName + " / " + processName);
                 FloatingMenuHost.prepare(application, packageName, processName);
+                CarromCtfHost.prepare(application, packageName, processName);
                 try {
                     NativePluginRuntime.beforeApplicationOnCreate(packageName, processName);
                 } catch (Throwable error) {
@@ -104,12 +105,14 @@ public final class UniversalLoaderApp extends Application {
                             + packageName + " / " + processName, error);
                 } finally {
                     FloatingMenuHost.clearPending();
+                    CarromCtfHost.clearPending();
                 }
             }
 
             @Override
             public void afterApplicationOnCreate(String packageName, String processName, Application application, int userId) {
                 FloatingMenuHost.prepare(application, packageName, processName);
+                CarromCtfHost.prepare(application, packageName, processName);
                 try {
                     NativePluginRuntime.afterApplicationOnCreate(packageName, processName);
                 } catch (Throwable error) {
@@ -117,6 +120,7 @@ public final class UniversalLoaderApp extends Application {
                             + packageName + " / " + processName, error);
                 } finally {
                     FloatingMenuHost.clearPending();
+                    CarromCtfHost.clearPending();
                 }
                 int profileCount = WorkspacePluginRegistry.countEnabledFor(UniversalLoaderApp.this, packageName);
                 Log.d(TAG, "virtual ready " + packageName + " / " + processName + " profiles=" + profileCount);
