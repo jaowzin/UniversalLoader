@@ -14,7 +14,7 @@ constexpr const char *kTag = "ULCarromCTF";
 
 // Known Carrom 19.3.0 / module 1473 aim-input RVAs. These are used only to obtain
 // the game's live aim axis and normalized power. Screen-space geometry is detected
-// from the real rendered board by CarromCtfHost instead of using guessed world scales.
+// from the real rendered board by CarromCtfHost/CarromCtfAutoPilot.
 constexpr uintptr_t kGetAngleRva = 0x01A854A0;
 constexpr uintptr_t kGetAngleSelectorRva = 0x012A01C0;
 constexpr uintptr_t kTouchesMovedRva = 0x018ECB5C;
@@ -171,8 +171,21 @@ double ageMs(int64_t timestampNs) {
     return static_cast<double>(delta) / 1000000.0;
 }
 
-void installHostMenu(JNIEnv *env) {
-    jclass host = env->FindClass("dev/jaowzin/universalloader/CarromCtfHost");
+jdoubleArray makeSnapshot(JNIEnv *env) {
+    jdouble values[5];
+    values[0] = static_cast<jdouble>(gStatus.load(std::memory_order_acquire));
+    values[1] = static_cast<jdouble>(gAngle.load(std::memory_order_relaxed));
+    values[2] = static_cast<jdouble>(gPower.load(std::memory_order_relaxed));
+    values[3] = static_cast<jdouble>(ageMs(gAngleNs.load(std::memory_order_acquire)));
+    values[4] = static_cast<jdouble>(ageMs(gPowerNs.load(std::memory_order_acquire)));
+    jdoubleArray result = env->NewDoubleArray(5);
+    if (!result) return nullptr;
+    env->SetDoubleArrayRegion(result, 0, 5, values);
+    return result;
+}
+
+void installJavaHost(JNIEnv *env, const char *className) {
+    jclass host = env->FindClass(className);
     if (!host) {
         if (env->ExceptionCheck()) env->ExceptionClear();
         return;
@@ -191,16 +204,17 @@ Java_dev_jaowzin_universalloader_CarromCtfHost_nativeStart(JNIEnv *, jclass) {
 
 extern "C" JNIEXPORT jdoubleArray JNICALL
 Java_dev_jaowzin_universalloader_CarromCtfHost_nativeSnapshot(JNIEnv *env, jclass) {
-    jdouble values[5];
-    values[0] = static_cast<jdouble>(gStatus.load(std::memory_order_acquire));
-    values[1] = static_cast<jdouble>(gAngle.load(std::memory_order_relaxed));
-    values[2] = static_cast<jdouble>(gPower.load(std::memory_order_relaxed));
-    values[3] = static_cast<jdouble>(ageMs(gAngleNs.load(std::memory_order_acquire)));
-    values[4] = static_cast<jdouble>(ageMs(gPowerNs.load(std::memory_order_acquire)));
-    jdoubleArray result = env->NewDoubleArray(5);
-    if (!result) return nullptr;
-    env->SetDoubleArrayRegion(result, 0, 5, values);
-    return result;
+    return makeSnapshot(env);
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_dev_jaowzin_universalloader_CarromCtfAutoPilot_nativeStart(JNIEnv *, jclass) {
+    return static_cast<jint>(installHooks());
+}
+
+extern "C" JNIEXPORT jdoubleArray JNICALL
+Java_dev_jaowzin_universalloader_CarromCtfAutoPilot_nativeSnapshot(JNIEnv *env, jclass) {
+    return makeSnapshot(env);
 }
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
@@ -209,6 +223,7 @@ extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
     if (vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6) != JNI_OK || !env) {
         return JNI_ERR;
     }
-    installHostMenu(env);
+    installJavaHost(env, "dev/jaowzin/universalloader/CarromCtfHost");
+    installJavaHost(env, "dev/jaowzin/universalloader/CarromCtfAutoPilot");
     return JNI_VERSION_1_6;
 }
