@@ -16,6 +16,15 @@ public final class UniversalLoaderApp extends Application {
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
+
+        // Snapshot Loader-owned plugin metadata and storage paths before the virtual I/O layer is
+        // attached. Every virtual process runs this host Application before binding its guest app.
+        try {
+            NativePluginRuntime.initialize(base);
+        } catch (Throwable error) {
+            Log.e(TAG, "native plugin runtime init failed", error);
+        }
+
         CarromRuntimeCore core = CarromRuntimeCore.get();
 
         try {
@@ -87,10 +96,22 @@ public final class UniversalLoaderApp extends Application {
             @Override
             public void beforeApplicationOnCreate(String packageName, String processName, Application application, int userId) {
                 Log.d(TAG, "virtual beforeOnCreate " + packageName + " / " + processName);
+                try {
+                    NativePluginRuntime.beforeApplicationOnCreate(packageName, processName);
+                } catch (Throwable error) {
+                    Log.e(TAG, "native plugins failed before onCreate for "
+                            + packageName + " / " + processName, error);
+                }
             }
 
             @Override
             public void afterApplicationOnCreate(String packageName, String processName, Application application, int userId) {
+                try {
+                    NativePluginRuntime.afterApplicationOnCreate(packageName, processName);
+                } catch (Throwable error) {
+                    Log.e(TAG, "native plugins failed after onCreate for "
+                            + packageName + " / " + processName, error);
+                }
                 int profileCount = WorkspacePluginRegistry.countEnabledFor(UniversalLoaderApp.this, packageName);
                 Log.d(TAG, "virtual ready " + packageName + " / " + processName + " profiles=" + profileCount);
             }
