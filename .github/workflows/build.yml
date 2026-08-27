@@ -1,0 +1,83 @@
+name: Build Universal Loader
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: universal-loader-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout UniversalLoader
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bootstrap vendored runtime
+        shell: bash
+        run: |
+          set -e
+          if [ ! -f .runtime-vendored ]; then
+            rm -rf /tmp/universal-loader-base
+            git clone --depth=1 https://github.com/jaowzin/Loader.git /tmp/universal-loader-base
+            python3 tools/bootstrap_runtime.py
+          fi
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform and NDK
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;29.0.13846066"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.5'
+
+      - name: Verify universal runtime exclusions
+        shell: bash
+        run: |
+          set -e
+          test -f .runtime-vendored
+          test ! -f runtime-core/src/main/cpp/Hook/CarromAimHook.cpp
+          test ! -f runtime-core/src/main/cpp/Utils/AntiDetection.cpp
+          test ! -f runtime-core/src/main/cpp/Utils/VirtualSpoof.cpp
+          ! grep -q 'Hook/CarromAimHook.cpp' runtime-core/src/main/cpp/Android.mk
+          ! grep -q 'Utils/AntiDetection.cpp' runtime-core/src/main/cpp/Android.mk
+          ! grep -q 'Utils/VirtualSpoof.cpp' runtime-core/src/main/cpp/Android.mk
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Commit vendored runtime
+        if: success()
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add -A
+            git commit -m 'Vendor universal runtime [skip ci]'
+            git push origin HEAD:main
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: UniversalLoader-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
