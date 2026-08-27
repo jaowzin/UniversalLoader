@@ -98,14 +98,16 @@ public final class UniversalLoaderApp extends Application {
                 Log.d(TAG, "virtual beforeOnCreate " + packageName + " / " + processName);
                 FloatingMenuHost.prepare(application, packageName, processName);
                 CarromCtfHost.prepare(application, packageName, processName);
+                CarromCtfAutoPilot.prepare(application, packageName, processName);
                 try {
                     NativePluginRuntime.beforeApplicationOnCreate(packageName, processName);
                 } catch (Throwable error) {
                     Log.e(TAG, "native plugins failed before onCreate for "
                             + packageName + " / " + processName, error);
                 } finally {
-                    FloatingMenuHost.clearPending();
+                    CarromCtfAutoPilot.clearPending();
                     CarromCtfHost.clearPending();
+                    FloatingMenuHost.clearPending();
                 }
             }
 
@@ -113,14 +115,16 @@ public final class UniversalLoaderApp extends Application {
             public void afterApplicationOnCreate(String packageName, String processName, Application application, int userId) {
                 FloatingMenuHost.prepare(application, packageName, processName);
                 CarromCtfHost.prepare(application, packageName, processName);
+                CarromCtfAutoPilot.prepare(application, packageName, processName);
                 try {
                     NativePluginRuntime.afterApplicationOnCreate(packageName, processName);
                 } catch (Throwable error) {
                     Log.e(TAG, "native plugins failed after onCreate for "
                             + packageName + " / " + processName, error);
                 } finally {
-                    FloatingMenuHost.clearPending();
+                    CarromCtfAutoPilot.clearPending();
                     CarromCtfHost.clearPending();
+                    FloatingMenuHost.clearPending();
                 }
                 int profileCount = WorkspacePluginRegistry.countEnabledFor(UniversalLoaderApp.this, packageName);
                 Log.d(TAG, "virtual ready " + packageName + " / " + processName + " profiles=" + profileCount);
