@@ -156,9 +156,13 @@ public final class CarromCtfAutoPilot {
             stopped = true;
             main.removeCallbacksAndMessages(null);
             worker.shutdownNow();
-            Bitmap current = bitmap;
+            busy.set(false);
+            preview = null;
+
+            // PixelCopy and Vision may still hold a reference to the capture target while an
+            // Activity is being paused/destroyed. Clearing our reference is enough; recycling the
+            // Bitmap here can invalidate native pixels that an in-flight callback is still using.
             bitmap = null;
-            if (current != null && !current.isRecycled()) current.recycle();
         }
 
         @Override
@@ -245,35 +249,64 @@ public final class CarromCtfAutoPilot {
             final SurfaceView source = surface;
             final int fx = offsetX;
             final int fy = offsetY;
+            final Bitmap captureTarget = bitmap;
             PixelCopy.OnPixelCopyFinishedListener listener = result -> {
-                if (result != PixelCopy.SUCCESS || stopped) {
+                if (stopped) {
+                    busy.set(false);
+                    return;
+                }
+                if (result != PixelCopy.SUCCESS) {
                     finishBusy("AUTO capture failed " + result);
                     return;
                 }
-                Bitmap captured = bitmap;
-                worker.execute(() -> {
-                    Frame frame = Vision.analyze(captured, fx, fy);
-                    Candidate candidate = chooseCandidate(frame);
-                    main.post(() -> {
-                        if (stopped) {
-                            busy.set(false);
+
+                try {
+                    worker.execute(() -> {
+                        if (stopped) return;
+
+                        final Frame frame;
+                        final Candidate candidate;
+                        try {
+                            frame = Vision.analyze(captureTarget, fx, fy);
+                            candidate = chooseCandidate(frame);
+                        } catch (Throwable error) {
+                            Log.w(TAG, "frame analysis failed", error);
+                            main.post(() -> {
+                                if (stopped) busy.set(false);
+                                else finishBusy("AUTO analyze failed");
+                            });
                             return;
                         }
-                        preview = candidate;
-                        if (candidate == null) {
-                            finishBusy("AUTO no clear shot");
-                            return;
-                        }
-                        status = "aiming " + candidate.label;
-                        invalidate();
-                        fire(candidate, frame);
+
+                        main.post(() -> {
+                            if (stopped) {
+                                busy.set(false);
+                                return;
+                            }
+                            preview = candidate;
+                            if (candidate == null) {
+                                finishBusy("AUTO no clear shot");
+                                return;
+                            }
+                            status = "aiming " + candidate.label;
+                            invalidate();
+                            fire(candidate, frame);
+                        });
                     });
-                });
+                } catch (RuntimeException error) {
+                    // shutdownNow() can race a just-finished PixelCopy callback during pause.
+                    if (!stopped) {
+                        Log.w(TAG, "analysis worker rejected frame", error);
+                        finishBusy("AUTO worker unavailable");
+                    } else {
+                        busy.set(false);
+                    }
+                }
             };
 
             try {
-                if (source != null) PixelCopy.request(source, bitmap, listener, main);
-                else PixelCopy.request(activity.getWindow(), bitmap, listener, main);
+                if (source != null) PixelCopy.request(source, captureTarget, listener, main);
+                else PixelCopy.request(activity.getWindow(), captureTarget, listener, main);
             } catch (Throwable error) {
                 Log.w(TAG, "PixelCopy request failed", error);
                 finishBusy("AUTO capture exception");
@@ -378,8 +411,9 @@ public final class CarromCtfAutoPilot {
         }
 
         private void finishBusy(String value) {
-            status = value;
             busy.set(false);
+            if (stopped) return;
+            status = value;
             invalidate();
         }
 
