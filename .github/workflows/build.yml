@@ -62,6 +62,10 @@ jobs:
           ! grep -q 'Utils/AntiDetection.cpp' runtime-core/src/main/cpp/Android.mk
           ! grep -q 'Utils/VirtualSpoof.cpp' runtime-core/src/main/cpp/Android.mk
 
+      - name: Recalibrate Carrom CTF vision
+        shell: bash
+        run: python3 tools/recalibrate_carrom_vision.py
+
       - name: Build floating menu sample plugin
         shell: bash
         run: |
