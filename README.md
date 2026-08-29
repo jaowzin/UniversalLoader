@@ -11,7 +11,9 @@ UniversalLoader is an Android virtual-app workspace built on the isolated runtim
 - Native plugin loading inside Loader-managed virtual app processes.
 - A developer extension point for controlled/debug targets.
 
-The universal build intentionally removes the Carrom-specific aim module, root-hiding code, device-property spoofing, and anti-detection hooks from the source runtime.
+The universal core intentionally excludes root-hiding code, device-property spoofing, anti-detection hooks, and external arbitrary-process injection. Game-specific behavior is kept outside the core as optional sample/plugin functionality.
+
+The current repository includes an optional **Carrom CTF sample plugin** with a trajectory overlay and a user-triggered auto-shot helper. Those components run only inside the UniversalLoader-managed virtual process and can be removed without changing the generic loader/runtime architecture.
 
 ## Native plugins
 
